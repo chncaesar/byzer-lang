@@ -19,6 +19,22 @@ class PluginHook extends MLSQLPlatformLifecycle with Logging {
   override def afterRuntime(runtime: StreamingRuntime, params: Map[String, String]): Unit = {}
 
   override def beforeDispatcher(runtime: StreamingRuntime, params: Map[String, String]): Unit = {
+    params.getOrElse("streaming.plugin.builtin.load.before.config", "").
+      split(",").filterNot(_.isEmpty).
+      foreach { beforeItem =>
+        AppRuntimeStore.store.registerLoadSave(AppRuntimeStore.LOAD_BEFORE_CONFIG_KEY, beforeItem)
+      }
+
+    params.getOrElse("streaming.plugin.builtin.save.before.config", "").split(",").filterNot(_.isEmpty).
+      foreach { beforeItem =>
+        AppRuntimeStore.store.registerLoadSave(AppRuntimeStore.SAVE_BEFORE_CONFIG_KEY, beforeItem)
+      }
+
+    params.getOrElse("streaming.plugin.builtin.fs.before.config", "").split(",").filterNot(_.isEmpty).
+      foreach { beforeItem =>
+        AppRuntimeStore.store.registerLoadSave(AppRuntimeStore.FS_BEFORE_CONFIG_KEY, beforeItem)
+      }
+
     // build-in plugins
     params.getOrElse("streaming.plugin.buildin.loads.before", "").
       split(",").filterNot(_.isEmpty).
@@ -30,6 +46,7 @@ class PluginHook extends MLSQLPlatformLifecycle with Logging {
       foreach { afterItem =>
         AppRuntimeStore.store.registerLoadSave(AppRuntimeStore.LOAD_AFTER_KEY, afterItem)
       }
+
 
     // build-in plugins
     PluginHook.startBuildIn(
