@@ -16,7 +16,6 @@ import java.nio.charset.Charset
 
 class MultiS3BucketSourcePlugin extends RewritableSourceConfig with Logging with WowLog {
   /**
-   *
    * For this plugin to work, defaultPathPrefix and allPathPrefix should be empty.
    * And set it to env path_prefix
    */
@@ -29,6 +28,7 @@ class MultiS3BucketSourcePlugin extends RewritableSourceConfig with Logging with
     // Save FS config to SparkSession
     val fsConf = MultiS3Bucket.S3AccessConf + ("fs.s3a.assumed.role.arn" -> awsInfo.get.role)
     MLSQLMultiBucket.configFS(fsConf, context.execListener.sparkSession )
+
     // PATH_PREFIX should be provided to achieve user data isolation
     val prefix = "s3a://" + awsInfo.get.bucket + "/" + context.execListener.env()(PATH_PREFIX)
     logInfo( this.format( s"Prepending path $prefix"))
@@ -94,40 +94,39 @@ object MultiS3Bucket extends WowLog with Logging {
    */
   def getAWSInfo(context: MLSQLExecuteContext): Option[AWSInfo] = {
     if ( ! context.execListener.env().contains( TENANT_ID ) || ! context.execListener.env().contains(PATH_PREFIX) ) {
-      logWarning(s"Either ${TENANT_ID} or ${PATH_PREFIX} is not defined")
+      logWarning( format(s"Either ${TENANT_ID} or ${PATH_PREFIX} is not defined"))
       return Option.empty
     }
 
     val tenantId = context.execListener.env()(TENANT_ID)
     logInfo( format(s"owner ${context.owner} tenant_id ${tenantId}"))
+    val paramsUtil = PlatformManager.getOrCreate.config.get()
+    val ( bucket, role ) = if( "false" == paramsUtil.getParam("streaming.fs.debugMode", "false")) {
+      val _zenServiceUrl = paramsUtil.getParam("streaming.zen.service","http://prime-backend-service.zen:9002")
+      val resp = Request.Get(s"http://${_zenServiceUrl}/api/v1/roles?tenant_id=${tenantId}")
+        .connectTimeout(10 * 1000)      // Timeout in milliseconds
+        .execute()
+        .returnResponse()
 
-    val _zenServiceUrl = PlatformManager.getOrCreate.config.get().getParam("streaming.zen.service",
-      "http://prime-backend-service.zen:9002")
-    val resp = Request.Get(s"http://${_zenServiceUrl}/api/v1/roles?tenant_id=${tenantId}")
-      .connectTimeout(10 * 1000)      // Timeout in milliseconds
-      .execute()
-      .returnResponse()
-
-    if( resp.getStatusLine.getStatusCode != 200 ) {
-      throw new RuntimeException(s"Failed to get owner ${context.owner} S3 access information")
+      if( resp.getStatusLine.getStatusCode != 200 ) {
+        throw new RuntimeException(s"Failed to get owner ${context.owner} S3 access information")
+      }
+      val content = if (resp.getEntity != null) EntityUtils.toByteArray(resp.getEntity) else Array[Byte]()
+      val contentStr = new String(content, Charset.forName(UTF_8.name()))
+      // Convert String to object
+      import org.json4s._
+      import org.json4s.jackson.Serialization.read
+      implicit val formats = DefaultFormats
+      val zenResult = read[ZenResult](contentStr)
+      if( zenResult.data.isEmpty) {
+        throw new RuntimeException(s"Failed to get owner ${context.owner} S3 access information")
+      }
+      logInfo(format("Zen API call succeed"))
+      (zenResult.data.head.name, zenResult.data.head.role)
     }
-    val content = if (resp.getEntity != null) EntityUtils.toByteArray(resp.getEntity) else Array[Byte]()
-    val contentStr = new String(content, Charset.forName(UTF_8.name()))
-    // Convert String to object
-    import org.json4s._
-    import org.json4s.jackson.Serialization.read
-    implicit val formats = DefaultFormats
-    val zenResult = read[ZenResult](contentStr)
-    if( zenResult.data.isEmpty) {
-      throw new RuntimeException(s"Failed to get owner ${context.owner} S3 access information")
+    else {
+      ("zjc-2", "arn:aws:iam::013043072193:role/zjc_test_role")
     }
-    logInfo(format("Zen API call succeed"))
-
-    // val bucket = zenResult.data.head.name
-    // val role = zenResult.data.head.role
-    // TODO use real bucket
-    val bucket = "s3a://zjc-2"
-    val role = "arn:aws:iam::013043072193:role/zjc_test_role"
     Some(AWSInfo(bucket, role))
   }
 
