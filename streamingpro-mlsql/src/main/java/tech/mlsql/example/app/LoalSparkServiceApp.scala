@@ -17,7 +17,7 @@ object LocalSparkServiceApp {
       "-streaming.spark.service", "true",
       "-streaming.job.cancel", "true",
       "-streaming.datalake.path", "/work/juicefs/byzer-lang-1/delta",
-      "-streaming.driver.port", "9003"
+      "-streaming.driver.port", "9004"
     ) ++ args )
   }
 }
